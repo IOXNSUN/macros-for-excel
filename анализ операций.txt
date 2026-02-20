@@ -1,0 +1,163 @@
+ChatGPT | Nano Banana, [09.12.2025 13:02]
+Option Explicit ' Всегда используйте эту строку в начале модуля для принудительного объявления всех переменных
+
+Sub CheckStatus_Improved()
+    Application.ScreenUpdating = False    ' Отключает обновление экрана Excel для ускорения
+    Application.DisplayAlerts = False     ' Отключает всплывающие окна с предупреждениями Excel
+
+    Dim ws As Worksheet                   ' Переменная для активного рабочего листа
+    Dim lastRow As Long                   ' Переменная для последней строки с данными
+    Dim i As Long                         ' Счетчик цикла
+    Dim token As String                   ' Переменная для токена платежа
+    Dim fullUrl As String                 ' Переменная для полного URL запроса
+    Dim xmlhttp As Object                 ' Объект для выполнения HTTP-запросов
+    Dim response As String                ' Переменная для хранения текстового ответа от сервера
+    Dim jsonResponse As Object            ' Объект для распарсенного JSON-ответа
+    
+    ' Переменные для извлеченных данных из JSON
+    Dim paymentStatus As Variant
+    Dim extendedCode As Variant
+    Dim responseCode As Variant
+    Dim merchantName As Variant
+
+    ' --- Настройка констант ---
+    Const BASE_URL As String = "https://www.pga.gazprombank.ru/api/v4/{{portal_id}}/payment/"
+    Const TOKEN_COL As Long = 7             ' Столбец G, откуда берется токен
+    Const RAW_RESPONSE_COL As Long = 10     ' Столбец J, куда записывается сырой ответ
+    Const STATUS_COL As Long = 11           ' Столбец K, куда записывается статус платежа
+    Const EXTENDED_CODE_COL As Long = 12    ' Столбец L, куда записывается расширенный код
+    Const RESPONSE_CODE_COL As Long = 13    ' Столбец M, куда записывается код ответа
+    Const MERCHANT_NAME_COL As Long = 14    ' Столбец N, куда записывается имя продавца
+    Const DELAY_MS As Long = 200            ' Задержка в миллисекундах между запросами
+
+    ' --- Инициализация ---
+    Set ws = ThisWorkbook.Sheets("Sheet1")
+    Set xmlhttp = CreateObject("MSXML2.XMLHTTP")
+
+    ' --- Определение диапазона данных (более надежно, ища последнюю заполненную строку в колонке с токенами) ---
+    lastRow = ws.Cells(ws.Rows.Count, TOKEN_COL).End(xlUp).Row
+    If lastRow < 2 Then
+        MsgBox "Нет данных для обработки в колонке " & ColNumToLetter(TOKEN_COL) & " (начиная со строки 2).", vbExclamation
+        GoTo CleanExit
+    End If
+
+    ' --- Цикл по строкам ---
+    For i = 2 To lastRow
+
+ChatGPT | Nano Banana, [09.12.2025 13:03]
+        ' Сброс ошибок для каждой итерации, чтобы не пропустить важные
+        On Error GoTo ErrorHandler_Loop
+
+        token = Trim(CStr(ws.Cells(i, TOKEN_COL).Value)) ' Преобразуем в строку и убираем лишние пробелы
+
+        ' Очищаем предыдущие значения в целевых ячейках перед новой записью
+        ws.Range(ws.Cells(i, RAW_RESPONSE_COL), ws.Cells(i, MERCHANT_NAME_COL)).ClearContents
+
+        If token = "" Or LCase(token) = "no bank id" Then ' Проверяем на пустой токен или предыдущую ошибку
+            ws.Cells(i, RAW_RESPONSE_COL).Value = "no bank ID"
+            GoTo NextIteration ' Переходим к следующей строке
+        End If
+
+        fullUrl = BASE_URL & token
+
+        ' --- Выполнение HTTP запроса ---
+        ' Метод POST сохраняется согласно требованиям
+        xmlhttp.Open "POST", fullUrl, False ' False = синхронный запрос
+        xmlhttp.Send
+
+        response = xmlhttp.responseText ' Получаем ответ от сервера
+
+        ' Записываем сырой ответ в целевую колонку
+        ws.Cells(i, RAW_RESPONSE_COL).Value = response
+
+        ' --- Обработка JSON ответа ---
+        Set jsonResponse = Nothing ' Сбрасываем объект JSON для новой итерации
+        If Len(response) > 0 Then
+            ' Попытка парсинга JSON. В случае ошибки парсинга, это будет обработано ErrorHandler_Loop.
+            Set jsonResponse = JsonConverter.ParseJson(response)
+            
+            ' Инициализируем переменные для извлеченных данных
+            paymentStatus = "N/A"
+            extendedCode = "N/A"
+            responseCode = "N/A"
+            merchantName = "N/A"
+            
+            ' Извлечение данных из JSON с проверкой на существование ключей
+            ' Использование "IsObject(jsonResponse("ключ"))" или "Not jsonResponse("ключ") Is Nothing"
+            ' помогает избежать ошибок, если ключ отсутствует.
+            If Not jsonResponse Is Nothing Then
+                If Not jsonResponse("result") Is Nothing Then
+                    If Not jsonResponse("result")("status") Is Nothing Then paymentStatus = jsonResponse("result")("status")
+                    If Not jsonResponse("result")("extendedCode") Is Nothing Then extendedCode = jsonResponse("result")("extendedCode")
+                    If Not jsonResponse("result")("responseCode") Is Nothing Then responseCode = jsonResponse("result")("responseCode")
+                End If
+
+                If Not jsonResponse("merchant") Is Nothing Then
+                    If Not jsonResponse("merchant")("name") Is Nothing Then merchantName = jsonResponse("merchant")("name")
+                End If
+            End If
+            
+            ' Запись извлеченных данных в соответствующие колонки
+            ws.Cells(i, STATUS_COL).Value = paymentStatus
+            ws.Cells(i, EXTENDED_CODE_COL).Value = extendedCode
+            ws.Cells(i, RESPONSE_CODE_COL).Value = responseCode
+            ws.Cells(i, MERCHANT_NAME_COL).Value = merchantName
+
+        Else ' Если ответ от сервера пустой
+            ws.Cells(i, STATUS_COL).Value = "Empty Response"
+        End If
+
+        ' --- Добавление задержки ---
+        Call Wait(DELAY_MS)
+
+NextIteration:
+    Next i
+
+CleanExit:
+    ' Включение обновления экрана и предупреждений
+    Application.ScreenUpdating = True
+    Application.DisplayAlerts = True
+    
+    ' Освобождение объектов
+    Set xmlhttp = Nothing
+    Set ws = Nothing
+    Set jsonResponse = Nothing
+    Exit Sub
+
+ErrorHandler_Loop:
+    ' Обработчик ошибок для текущей итерации цикла
+    Dim errorMsg As String
+    errorMsg = "Error " & Err.Number & ": " & Err.Description & " at row " & i & ". URL: " & fullUrl
+    
+    ' Записываем сообщение об ошибке
+    If i >= 2 And i <= lastRow Then
+        ws.Cells(i, RAW_RESPONSE_COL).Value = response & vbCrLf & "MACRO ERROR: " & errorMsg
+        ws.Cells(i, STATUS_COL).Value = "ERROR" ' Дополнительный маркер для ошибки
+    Else
+        ' Если оши
+
+ChatGPT | Nano Banana, [09.12.2025 13:03]
+бка произошла вне цикла, или lastRow изменился
+        MsgBox "An unhandled error occurred: " & errorMsg, vbCritical
+    End If
+    
+    Err.Clear ' Сбрасываем объект ошибки
+    Resume Next ' Продолжаем выполнение макроса со следующей итерации
+
+End Sub
+
+' --- Вспомогательная функция для задержки ---
+' Разместите эту функцию в том же модуле или в отдельном стандартном модуле
+Private Sub Wait(ms As Long)
+    Dim start As Double
+    start = Timer ' Количество секунд с полуночи
+    Do While Timer < start + (ms / 1000)
+        DoEvents ' Передает управление операционной системе для обработки других событий
+    Loop
+End Sub
+
+' --- Вспомогательная функция для преобразования номера столбца в букву ---
+' Разместите эту функцию в том же модуле или в отдельном стандартном модуле
+Private Function ColNumToLetter(ColNum As Long) As String
+    ColNumToLetter = Split(Cells(1, ColNum).Address, "$")(1)
+End Function

@@ -1,0 +1,79 @@
+Sub AnalyzeResults()
+
+  Dim ws As Worksheet
+  Dim lastRow As Long
+  Dim i As Long
+  Dim result As String
+  Dim successCount As Long, clientErrorCount As Long, authDeclinedCount As Long, issuerDeclinedCount As Long, cardFaultCount As Long
+  Dim totalCount As Long
+  Dim successPercent As Double, clientErrorPercent As Double, authDeclinedPercent As Double, issuerDeclinedPercent As Double, cardFaultPercent As Double
+
+
+  ' Укажите имя листа, где находятся данные
+  Set ws = ThisWorkbook.Sheets("DJR") '  Измените "DJR" на имя вашего листа
+
+  ' Определяем последнюю заполненную строку в колонке A
+  lastRow = ws.Cells(Rows.Count, "A").End(xlUp).Row
+
+  ' Инициализируем счетчики
+  successCount = 0
+  clientErrorCount = 0
+  authDeclinedCount = 0
+  issuerDeclinedCount = 0
+  cardFaultCount = 0
+  totalCount = 0
+
+  ' Цикл по каждой строке, начиная со второй (предполагаем, что первая строка - заголовки)
+  For i = 2 To lastRow
+    result = ws.Cells(i, "A").Value
+
+    Select Case result
+      Case "PREAUTHORIZATION_OK", "OK"
+        successCount = successCount + 1
+      Case "INSUFFICIENT_FUNDS", "DECLINED_BY_ISSUER", "CARD_EXPIRED", "CARD_LOST_OR_STOLEN"
+        clientErrorCount = clientErrorCount + 1
+      Case "AUTHENTICATION_DECLINED", "AUTHENTICATION_FAILED", "AUTHENTICATION_TIMEOUT"
+        authDeclinedCount = authDeclinedCount + 1
+      Case "AUTHORIZATION_FAILED"
+        issuerDeclinedCount = issuerDeclinedCount + 1
+      Case "CARD_FAULT"
+        cardFaultCount = cardFaultCount + 1
+    End Select
+
+    totalCount = totalCount + 1
+  Next i
+
+  ' Рассчитываем проценты
+  If totalCount > 0 Then
+    successPercent = successCount / totalCount * 100
+    clientErrorPercent = clientErrorCount / totalCount * 100
+    authDeclinedPercent = authDeclinedCount / totalCount * 100
+    issuerDeclinedPercent = issuerDeclinedCount / totalCount * 100
+    cardFaultPercent = cardFaultCount / totalCount * 100
+  Else
+    successPercent = 0
+    clientErrorPercent = 0
+    authDeclinedPercent = 0
+    issuerDeclinedPercent = 0
+    cardFaultPercent = 0
+  End If
+
+  ' Выводим результаты в колонку D
+  ws.Cells(2, "D").Value = "Успех:"
+  ws.Cells(2, "E").Value = Format(successPercent, "0.00") & "%"
+
+  ws.Cells(3, "D").Value = "Ошибка клиента:"
+  ws.Cells(3, "E").Value = Format(clientErrorPercent, "0.00") & "%"
+
+  ws.Cells(4, "D").Value = "Отказ от аутентификации:"
+  ws.Cells(4, "E").Value = Format(authDeclinedPercent, "0.00") & "%"
+
+  ws.Cells(5, "D").Value = "Отказ эмитента:"
+  ws.Cells(5, "E").Value = Format(issuerDeclinedPercent, "0.00") & "%"
+
+  ws.Cells(6, "D").Value = "Ошибка карты:"
+  ws.Cells(6, "E").Value = Format(cardFaultPercent, "0.00") & "%"
+
+  MsgBox "Анализ завершен!", vbInformation
+
+End Sub

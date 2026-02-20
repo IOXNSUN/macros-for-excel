@@ -1,0 +1,139 @@
+Sub ExtractCertsWithCertUtil()
+    Dim shell As Object
+    Dim folderPath As String
+    Dim certFile As String
+    Dim fileName As String
+    Dim i As Integer
+    Dim ws As Worksheet
+    
+    Set shell = CreateObject("WScript.Shell")
+    folderPath = "T:\SSL"
+    
+    ' Проверяем доступность папки
+    If Dir(folderPath, vbDirectory) = "" Then
+        MsgBox "Папка не доступна: " & folderPath, vbCritical
+        Exit Sub
+    End If
+    
+    ' Создаем лист
+    Set ws = Worksheets.Add(After:=ActiveSheet)
+    ws.Name = "Сертификаты_" & Format(Now, "hhmmss")
+    
+    ' Заголовки
+    With ws
+        .Cells(1, 1) = "Имя файла"
+        .Cells(1, 2) = "Common Name (CN)"
+        .Cells(1, 3) = "Издатель"
+        .Cells(1, 4) = "Субъект"
+        .Cells(1, 5) = "Действует с"
+        .Cells(1, 6) = "Действует до"
+        .Cells(1, 7) = "Серийный номер"
+        .Cells(1, 8) = "Алгоритм"
+    End With
+    
+    i = 2
+    
+    ' Обрабатываем .cer файлы
+    fileName = Dir(folderPath & "\*.cer")
+    Do While fileName <> ""
+        certFile = folderPath & "\" & fileName
+        ExtractCertInfo shell, certFile, ws, i
+        fileName = Dir()
+    Loop
+    
+    ' Обрабатываем .crt файлы
+    fileName = Dir(folderPath & "\*.crt")
+    Do While fileName <> ""
+        certFile = folderPath & "\" & fileName
+        ExtractCertInfo shell, certFile, ws, i
+        fileName = Dir()
+    Loop
+    
+    ' Форматируем таблицу
+    With ws
+        .Columns.AutoFit
+        With .Rows(1)
+            .Font.Bold = True
+            .HorizontalAlignment = xlCenter
+        End With
+    End With
+    
+    MsgBox "Выгрузка завершена! Обработано файлов: " & i - 2, vbInformation
+End Sub
+
+Sub ExtractCertInfo(shell As Object, certFile As String, ws As Worksheet, ByRef rowNum As Integer)
+    Dim wshExec As Object
+    Dim output As String
+    Dim line As String
+    Dim cn As String, issuer As String, subject As String
+    Dim fromDate As String, toDate As String
+    Dim serial As String, algorithm As String
+    
+    ' Инициализируем переменные
+    cn = "Не найден"
+    issuer = "Не найден"
+    subject = "Не найден"
+    fromDate = "Не найден"
+    toDate = "Не найден"
+    serial = "Не найден"
+    algorithm = "Не найден"
+    
+    ' Запускаем certutil и получаем вывод
+    Set wshExec = shell.Exec("certutil -dump """ & certFile & """")
+    
+    ' Читаем вывод построчно
+    Do While Not wshExec.StdOut.AtEndOfStream
+        line = wshExec.StdOut.ReadLine
+        
+        ' Парсим информацию
+        If InStr(1, line, "CN =", vbTextCompare) > 0 Then
+            cn = Trim(Replace(Split(line, "CN =")(1), ",", ""))
+        ElseIf InStr(1, line, "Issuer:", vbTextCompare) > 0 Then
+            issuer = Trim(Replace(line, "Issuer:", ""))
+        ElseIf InStr(1, line, "Subject:", vbTextCompare) > 0 Then
+            subject = Trim(Replace(line, "Subject:", ""))
+            ' Пытаемся извлечь CN из Subject
+            If cn = "Не найден" Then
+                cn = ExtractCNFromSubject(subject)
+            End If
+        ElseIf InStr(1, line, "NotBefore:", vbTextCompare) > 0 Then
+            fromDate = Trim(Replace(line, "NotBefore:", ""))
+        ElseIf InStr(1, line, "NotAfter:", vbTextCompare) > 0 Then
+            toDate = Trim(Replace(line, "NotAfter:", ""))
+        ElseIf InStr(1, line, "SerialNumber:", vbTextCompare) > 0 Then
+            serial = Trim(Replace(line, "SerialNumber:", ""))
+        ElseIf InStr(1, line, "Signature Algorithm:", vbTextCompare) > 0 Then
+            algorithm = Trim(Replace(line, "Signature Algorithm:", ""))
+        End If
+    Loop
+    
+    ' Записываем данные
+    With ws
+        .Cells(rowNum, 1) = CreateObject("Scripting.FileSystemObject").GetFileName(certFile)
+        .Cells(rowNum, 2) = cn
+        .Cells(rowNum, 3) = issuer
+        .Cells(rowNum, 4) = subject
+        .Cells(rowNum, 5) = fromDate
+        .Cells(rowNum, 6) = toDate
+        .Cells(rowNum, 7) = serial
+        .Cells(rowNum, 8) = algorithm
+    End With
+    
+    rowNum = rowNum + 1
+End Sub
+
+Function ExtractCNFromSubject(subject As String) As String
+    Dim parts As Variant
+    Dim part As Variant
+    Dim i As Integer
+    
+    parts = Split(subject, ",")
+    For i = 0 To UBound(parts)
+        If InStr(1, Trim(parts(i)), "CN=", vbTextCompare) = 1 Then
+            ExtractCNFromSubject = Trim(Replace(parts(i), "CN=", ""))
+            Exit Function
+        End If
+    Next i
+    
+    ExtractCNFromSubject = "Не найден"
+End Function
