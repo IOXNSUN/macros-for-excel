@@ -10,7 +10,6 @@
 
 ## Технологии
 - VBA, Excel
-- Python + COM (опционально)
 - CSV / XLSX
 
 
